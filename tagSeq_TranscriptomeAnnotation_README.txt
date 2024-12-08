@@ -60,7 +60,16 @@ launcher_creator.py -j seq_stats -n seq_stats -q shortq7 -t 6:00:00 -e studivanm
 sbatch seq_stats.slurm
 
 Cladocopium.fasta
-
+-------------------------
+49545 sequences.
+2003 average length.
+99816 maximum length.
+129 minimum length.
+N50 = 2910
+99.3 Mb altogether (99250232 bp).
+0 ambiguous Mb. (0 bp, 0%)
+0 Mb of Ns. (0 bp, 0%)
+-------------------------
 
 
 #------------------------------
