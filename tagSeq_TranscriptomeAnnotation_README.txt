@@ -1,4 +1,4 @@
-# Cladocopium goreaui Transcriptome Annotation, version December 7, 2024
+# Cladocopium goreaui Transcriptome Annotation, version December 16, 2024
 # Created by Misha Matz (matz@utexas.edu), modified by Michael Studivan (studivanms@gmail.com) for use on FAU's HPC (KoKo)
 
 
@@ -51,7 +51,8 @@ cd annotate
 https://doi.org/10.48610/fba3259
 
 # Renaming gene identifiers for ease
-sed -i 's/lcl/Cladocopium/' Cladocopium.fasta
+sed -i 's/lcl|CAMXCT/Cladocopium/' Cladocopium.fasta
+sed -i 's/C1SCF055_LOCUS/Cladocopium/' Cladocopium.fasta
 
 # transcriptome statistics
 conda activate bioperl
@@ -103,9 +104,27 @@ grep "Query= " subset*.br | wc -l
 cat subset*br > myblast.br
 rm subset*
 
-# Annotating with isogroups
-grep ">" Cladocopium.fasta | perl -pe 's/>Cladocopium(\d+)(\S+).+/Cladocopium$1$2\tCladocopium$1/'>Cladocopium_seq2iso.tab
-cat Cladocopium.fasta | perl -pe 's/>Cladocopium(\d+)(\S+)/>Cladocopium$1$2 gene=Cladocopium$1/'>Cladocopium_iso.fasta
+# Extracting contig and isogroup names intro a lookup table
+grep ">" Cladocopium.fasta | awk '{
+    header = substr($1, 2);                  # Remove the leading ">" from the first field
+    match($0, /locus_tag=([^]]+)/, gene);    # Extract the locus_tag (gene name)
+    print header "\t" gene[1];               # Print the full header and locus_tag
+}' > Cladocopium_seq2iso.tab
+
+# Annotating transcriptome with isogroups
+awk '{
+    if (substr($0, 1, 1) == ">") {
+        full_contig_name = substr($0, 2, index($0, "[") - 2);     # Extract the full contig name (everything after ">")
+        if (match($0, /locus_tag=([^]]+)/, locus)) {
+            isogroup = locus[1];                                  # Extract the isogroup (locus_tag) from the header
+        } else {
+            isogroup = "NA";                                      # If no locus_tag is found, set it to NA
+        }
+        print ">" full_contig_name " gene=" isogroup;             # Output the new header with the full contig name and gene=isogroup
+    } else {
+        print $0;                                                  # Output the sequence as is
+    }
+}' Cladocopium.fasta > Cladocopium_iso.fasta
 
 
 #-------------------------
