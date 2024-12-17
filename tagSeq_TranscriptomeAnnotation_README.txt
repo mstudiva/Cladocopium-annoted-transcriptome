@@ -139,7 +139,7 @@ sbatch cddd
 # GO annotation
 # updated based on Misha Matz's new GO and KOG annotation steps on github: https://github.com/z0on/emapper_to_GOMWU_KOGMWU
 
-# selecting the longest contig per isogroup (also renames using isogroups based on Cladocopium and Cladocopium annotations):
+# selecting the longest contig per isogroup (also renames using isogroups based on Cladocopium annotations):
 fasta2SBH.pl Cladocopium_iso_PRO.fas >Cladocopium_out_PRO.fas
 
 # scp your *_out_PRO.fas file to laptop, submit it to
