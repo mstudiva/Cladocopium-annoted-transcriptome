@@ -1,4 +1,4 @@
-# Cladocopium goreaui Transcriptome Annotation, version December 16, 2024
+# Cladocopium goreaui Transcriptome Annotation, version December 18, 2024
 # Created by Misha Matz (matz@utexas.edu), modified by Michael Studivan (studivanms@gmail.com) for use on FAU's HPC (KoKo)
 
 
@@ -47,8 +47,8 @@ cd annotate
 #------------------------------
 # getting transcriptomes
 
-# Chen (2022)
-https://doi.org/10.48610/fba3259
+# Chen (2022) https://doi.org/10.3390/microorganisms10081662
+# cds and protein translations from genome at https://www.ncbi.nlm.nih.gov/datasets/genome/GCA_947184155.2/
 
 # Renaming gene identifiers for ease
 sed -i 's/lcl|CAMXCT/Cladocopium/' Cladocopium.fasta
@@ -73,85 +73,55 @@ N50 = 2910
 -------------------------
 
 
-#------------------------------
-# uniprot annotations with blast
+#-------------------------
+# Extracting contig, isogroup, and protein IDs into lookup tables
 
-# getting uniprot_swissprot KB database
-wget ftp://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz
-
-# unzipping
-gunzip uniprot_sprot.fasta.gz &
-
-# indexing the fasta database
-module load blast-plus-2.11.0-gcc-9.2.0-5tzbbls
-echo "makeblastdb -in uniprot_sprot.fasta -dbtype prot" >mdb
-launcher_creator.py -j mdb -n mdb -q shortq7 -t 6:00:00 -e studivanms@gmail.com
-sbatch mdb.slurm
-
-# splitting the transcriptome into 50 chunks, or however many is needed to keep the number of seqs per chunk under 1000
-splitFasta.pl Cladocopium.fasta 50
-
-# blasting all 200 chunks to uniprot in parallel, 4 cores per chunk
-ls subset* | perl -pe 's/^(\S+)$/blastx -query $1 -db uniprot_sprot\.fasta -evalue 0\.0001 -num_threads 4 -num_descriptions 5 -num_alignments 5 -out $1.br/'>bl
-launcher_creator.py -j bl -n blast -t 6:00:00 -q shortq7 -e studivanms@gmail.com
-sbatch blast.slurm
-
-# watching progress:
-grep "Query= " subset*.br | wc -l
-# you should end up with the same number of queries as sequences from the seq_stats script
-
-# combining all blast results
-cat subset*br > myblast.br
-rm subset*
-
-# Extracting contig and isogroup names intro a lookup table
 grep ">" Cladocopium.fasta | awk '{
     header = substr($1, 2);                  # Remove the leading ">" from the first field
     match($0, /locus_tag=([^]]+)/, gene);    # Extract the locus_tag (gene name)
     print header "\t" gene[1];               # Print the full header and locus_tag
 }' > Cladocopium_seq2iso.tab
 
-# Annotating transcriptome with isogroups
-awk '{
-    if (substr($0, 1, 1) == ">") {
-        full_contig_name = substr($0, 2, index($0, "[") - 2);     # Extract the full contig name (everything after ">")
-        if (match($0, /locus_tag=([^]]+)/, locus)) {
-            isogroup = locus[1];                                  # Extract the isogroup (locus_tag) from the header
-        } else {
-            isogroup = "NA";                                      # If no locus_tag is found, set it to NA
-        }
-        print ">" full_contig_name " gene=" isogroup;             # Output the new header with the full contig name and gene=isogroup
-    } else {
-        print $0;                                                  # Output the sequence as is
+grep ">" Cladocopium.fasta | awk -F'[][]' '{
+    for (i=1; i<=NF; i++) {
+        if ($i ~ /locus_tag=/) { gsub("locus_tag=", "", $i); gene=$i }
+        if ($i ~ /protein_id=/) { gsub("protein_id=", "", $i); protein=$i }
     }
-}' Cladocopium.fasta > Cladocopium_iso.fasta
-
-
-#-------------------------
-# extracting coding sequences and corresponding protein translations:
-conda activate bioperl # if not active already
-echo "perl ~/bin/CDS_extractor_v2.pl Cladocopium_iso.fasta myblast.br allhits bridgegaps" >cds
-launcher_creator.py -j cds -n cds -l cddd -t 6:00:00 -q shortq7 -e studivanms@gmail.com
-sbatch cddd
+    if (gene && protein) { print protein, gene }
+}' > Cladocopium_seq2pro.tab
 
 
 #------------------------------
 # GO annotation
-# updated based on Misha Matz's new GO and KOG annotation steps on github: https://github.com/z0on/emapper_to_GOMWU_KOGMWU
+# updated based on Misha Matz's new GO and KOG annotation steps on GitHub: https://github.com/z0on/emapper_to_GOMWU_KOGMWU
 
-# selecting the longest contig per isogroup (also renames using isogroups based on Cladocopium annotations):
-fasta2SBH.pl Cladocopium_iso_PRO.fas >Cladocopium_out_PRO.fas
+# first rename protein headers as gene ID based on lookup table
+awk 'BEGIN {
+    while (getline < "Cladocopium_seq2pro.tab") {
+        map[$1] = $2
+    }
+}
+/^>/ {
+    protein_id = substr($0, 2, index($0, " ") - 2)
+    if (protein_id in map) {
+        sub(protein_id, map[protein_id])
+    }
+}
+{ print }' protein.faa > Cladocopium_pro.fasta
 
-# scp your *_out_PRO.fas file to laptop, submit it to
+# selecting the longest contig per isogroup
+fasta2SBH.pl Cladocopium_pro.fasta >Cladocopium_pro_out.fasta
+
+# scp *_pro_out.fasta to laptop, submit it to
 http://eggnog-mapper.embl.de
 cd /path/to/local/directory
-scp mstudiva@koko-login.hpc.fau.edu:~/path/to/HPC/directory/\*_out_PRO.fas .
+scp mstudiva@koko-login.hpc.fau.edu:~/path/to/HPC/directory/\*_pro_out.fasta .
 
 # copy link to job ID status and output file, paste it below instead of current link:
-# http://eggnog-mapper.embl.de/job_status?jobname=MM_wo5a5jlp
+# http://eggnog-mapper.embl.de/job_status?jobname=MM_a3tl4oxj
 
 # once it is done, download results to HPC:
-wget http://eggnog-mapper.embl.de/MM_wo5a5jlp/out.emapper.annotations
+wget http://eggnog-mapper.embl.de/MM_a3tl4oxj/out.emapper.annotations
 
 # GO:
 awk -F "\t" 'BEGIN {OFS="\t" }{print $1,$10 }' out.emapper.annotations | grep GO | perl -pe 's/,/;/g' >Cladocopium_iso2go.tab
@@ -166,7 +136,6 @@ awk -F "\t" 'BEGIN {OFS="\t" }{print $1,$8 }' out.emapper.annotations | grep -Ev
 cp ~/bin/kog_classes.txt .
 
 #  KOG classes (single-letter):
-# this doesn't appear to be working, but the below line works awk -F "\t" 'BEGIN {OFS="\t" }{print $1,$7 }' out.emapper.annotations | grep -Ev "[,#S]" >Cladocopium_iso2kogClass1.tab
 awk -F "\t" 'BEGIN {OFS="\t" }{print $1,$7 }' out.emapper.annotations | grep -Ev "\tNA" >Cladocopium_iso2kogClass1.tab
 # converting single-letter KOG classes to text understood by KOGMWU package (must have kog_classes.txt file in the same dir):
 awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1] = $2;next} {print $1,a[$2]}' kog_classes.txt Cladocopium_iso2kogClass1.tab > Cladocopium_iso2kogClass.tab
@@ -175,18 +144,40 @@ awk 'BEGIN {FS=OFS="\t"} NR==FNR {a[$1] = $2;next} {print $1,a[$2]}' kog_classes
 #------------------------------
 # KEGG annotations:
 
-# selecting the longest contig per isogroup:
-srun fasta2SBH.pl Cladocopium_iso.fasta >Cladocopium_4kegg.fasta
+# first rename fasta headers as gene ID (isogroup) rather than contig ID
+awk 'BEGIN {
+    while (getline < "Cladocopium_seq2iso.tab") {
+        map[$1] = $2
+    }
+}
+/^>/ {
+    gene_id = substr($0, 2, index($0, " ") - 2)
+    if (gene_id in map) {
+        sub(gene_id, map[gene_id])
+    }
+}
+{ print }' Cladocopium.fasta > Cladocopium_iso.fasta
 
-# scp *4kegg.fasta to your laptop
+# selecting the longest contig per isogroup
+fasta2SBH.pl Cladocopium_iso.fasta >Cladocopium_iso_out.fasta
+
+# Sanity check: How many unique isogroups do we have?
+grep ">" Cladocopium.fasta | sort | uniq | wc -l            # 49545
+grep ">" Cladocopium_pro.fasta | sort | uniq | wc -l        # 45371
+grep ">" Cladocopium_pro_out.fasta | sort | uniq | wc -l    # 45316
+grep ">" Cladocopium_iso.fasta | sort | uniq | wc -l        # 49545
+grep ">" Cladocopium_iso_out.fasta | sort | uniq | wc -l    # 45319
+# The two _out files should roughly match
+
+# scp *_iso_out.fasta to your laptop
 cd /path/to/local/directory
-scp mstudiva@koko-login.hpc.fau.edu:~/path/to/HPC/directory/\*4kegg.fasta .
-# use web browser to submit 4kegg.fasta file to KEGG's KAAS server (http://www.genome.jp/kegg/kaas/)
+scp mstudiva@koko-login.hpc.fau.edu:~/path/to/HPC/directory/\*_iso_out.fasta .
+# use web browser to submit _iso.fasta file to KEGG's KAAS server (http://www.genome.jp/kegg/kaas/)
 # select SBH method, upload nucleotide query
-https://www.genome.jp/kaas-bin/kaas_main?mode=user&id=1692993657&key=h8IrRWSR
+https://www.genome.jp/kaas-bin/kaas_main?mode=user&id=1734546497&key=banMjCtB
 
 # Once it is done, download to HPC - it is named query.ko by default
-wget https://www.genome.jp/tools/kaas/files/dl/1692993657/query.ko
+wget https://www.genome.jp/tools/kaas/files/dl/1734546497/query.ko
 
 # selecting only the lines with non-missing annotation:
 cat query.ko | awk '{if ($2!="") print }' > Cladocopium_iso2kegg.tab
